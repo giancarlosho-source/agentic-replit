@@ -1,0 +1,18 @@
+{
+  "name": "local-ai-agent",
+  "version": "1.0.0",
+  "description": "A fully capable local AI coding agent — read/write files, run commands, build apps",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "openai": "^4.28.0",
+    "dotenv": "^16.4.1",
+    "cors": "^2.8.5",
+    "chokidar": "^3.5.3",
+    "ignore": "^5.3.1"
+  }
+}
