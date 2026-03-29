@@ -13,7 +13,7 @@ const AI_MODEL = process.env.AI_MODEL || 'gpt-4o';
 if (process.env.WORK_DIR) setWorkDir(process.env.WORK_DIR);
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 let openai = null;
