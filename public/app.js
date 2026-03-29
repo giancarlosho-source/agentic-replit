@@ -2,24 +2,31 @@
 let conversations = JSON.parse(localStorage.getItem('agent-conversations') || '[]');
 let currentId = null;
 let isRunning = false;
+let abortController = null;
+let pendingImages = []; // { dataUrl, mimeType, base64 }
 
 // ── DOM refs ──────────────────────────────────────────────────────────
-const messagesEl = document.getElementById('messages');
-const welcomeEl = document.getElementById('welcomeScreen');
-const userInput = document.getElementById('userInput');
-const sendBtn = document.getElementById('sendBtn');
-const newChatBtn = document.getElementById('newChatBtn');
-const historyList = document.getElementById('historyList');
-const statusDot = document.getElementById('statusDot');
-const statusText = document.getElementById('statusText');
+const messagesEl     = document.getElementById('messages');
+const welcomeEl      = document.getElementById('welcomeScreen');
+const userInput      = document.getElementById('userInput');
+const sendBtn        = document.getElementById('sendBtn');
+const stopBtn        = document.getElementById('stopBtn');
+const newChatBtn     = document.getElementById('newChatBtn');
+const historyList    = document.getElementById('historyList');
+const statusDot      = document.getElementById('statusDot');
+const statusText     = document.getElementById('statusText');
 const workdirDisplay = document.getElementById('workdirDisplay');
-const workdirInline = document.getElementById('workdirInline');
-const workdirModal = document.getElementById('workdirModal');
-const workdirInput = document.getElementById('workdirInput');
-const changeWorkdirBtn = document.getElementById('changeWorkdirBtn');
-const cancelWorkdir = document.getElementById('cancelWorkdir');
-const confirmWorkdir = document.getElementById('confirmWorkdir');
-const chatArea = document.getElementById('chatArea');
+const workdirInline  = document.getElementById('workdirInline');
+const workdirModal   = document.getElementById('workdirModal');
+const workdirInput   = document.getElementById('workdirInput');
+const changeWorkdirBtn  = document.getElementById('changeWorkdirBtn');
+const cancelWorkdir     = document.getElementById('cancelWorkdir');
+const confirmWorkdir    = document.getElementById('confirmWorkdir');
+const chatArea          = document.getElementById('chatArea');
+const attachBtn         = document.getElementById('attachBtn');
+const imageInput        = document.getElementById('imageInput');
+const imagePreviewStrip = document.getElementById('imagePreviewStrip');
+const inputArea         = document.querySelector('.input-area');
 
 // ── Status ────────────────────────────────────────────────────────────
 async function checkStatus() {
@@ -38,6 +45,62 @@ async function checkStatus() {
     statusDot.className = 'status-dot error';
     statusText.textContent = 'Server not reachable';
   }
+}
+
+// ── Image handling ────────────────────────────────────────────────────
+function readImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const dataUrl = e.target.result;
+      const base64 = dataUrl.split(',')[1];
+      resolve({ dataUrl, base64, mimeType: file.type || 'image/png', name: file.name });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function addImages(files) {
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) continue;
+    const img = await readImageFile(file);
+    pendingImages.push(img);
+  }
+  renderImagePreviews();
+}
+
+function renderImagePreviews() {
+  imagePreviewStrip.innerHTML = '';
+  if (pendingImages.length === 0) {
+    imagePreviewStrip.style.display = 'none';
+    attachBtn.classList.remove('has-images');
+    return;
+  }
+
+  imagePreviewStrip.style.display = 'flex';
+  attachBtn.classList.add('has-images');
+
+  pendingImages.forEach((img, i) => {
+    const item = document.createElement('div');
+    item.className = 'image-preview-item';
+
+    const imgEl = document.createElement('img');
+    imgEl.src = img.dataUrl;
+    imgEl.alt = img.name;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'image-preview-remove';
+    removeBtn.textContent = '×';
+    removeBtn.onclick = () => {
+      pendingImages.splice(i, 1);
+      renderImagePreviews();
+    };
+
+    item.appendChild(imgEl);
+    item.appendChild(removeBtn);
+    imagePreviewStrip.appendChild(item);
+  });
 }
 
 // ── Conversations ─────────────────────────────────────────────────────
@@ -67,9 +130,9 @@ function loadConvo(id) {
   messagesEl.innerHTML = '';
   welcomeEl.style.display = 'none';
   messagesEl.style.display = 'flex';
-  convo.messages.filter(m => m.role === 'user' || m.role === 'assistant').forEach(m => {
-    renderMessage(m.role, m.content, m.toolCalls || [], false);
-  });
+  convo.messages
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .forEach(m => renderMessage(m.role, m.textContent || m.content, m.toolCalls || [], m.images || [], false));
   renderHistory();
   scrollDown();
 }
@@ -100,15 +163,15 @@ function toolIcon(name) {
 }
 
 function toolArgSummary(name, args) {
-  if (args.path && args.command) return `${args.path} · ${args.command}`;
   if (args.command) return args.command;
+  if (args.path && name !== 'list_files') return args.path;
   if (args.path) return args.path;
   if (args.pattern) return `"${args.pattern}"`;
   return JSON.stringify(args).slice(0, 60);
 }
 
 // ── Render message ────────────────────────────────────────────────────
-function renderMessage(role, content, toolCalls = [], animate = true) {
+function renderMessage(role, content, toolCalls = [], images = [], animate = true) {
   const div = document.createElement('div');
   div.className = `message ${role}`;
 
@@ -119,7 +182,21 @@ function renderMessage(role, content, toolCalls = [], animate = true) {
   const body = document.createElement('div');
   body.className = 'message-body';
 
-  // Render tool calls above content
+  // Show attached images for user messages
+  if (images && images.length > 0) {
+    const imgRow = document.createElement('div');
+    imgRow.className = 'message-images';
+    images.forEach(img => {
+      const imgEl = document.createElement('img');
+      imgEl.src = img.dataUrl;
+      imgEl.alt = 'Attached image';
+      imgEl.onclick = () => window.open(img.dataUrl, '_blank');
+      imgRow.appendChild(imgEl);
+    });
+    body.appendChild(imgRow);
+  }
+
+  // Render tool calls above content (for assistant messages)
   if (toolCalls.length > 0) {
     const tcContainer = document.createElement('div');
     tcContainer.className = 'tool-calls';
@@ -189,7 +266,6 @@ function renderToolCall(name, args, result, status) {
     resultEl.className = 'tool-call-body';
     resultEl.textContent = result;
     tc.appendChild(resultEl);
-
     header.addEventListener('click', () => tc.classList.toggle('expanded'));
   }
 
@@ -201,9 +277,23 @@ function scrollDown() {
   requestAnimationFrame(() => { chatArea.scrollTop = chatArea.scrollHeight; });
 }
 
+// ── Build OpenAI message content with optional images ─────────────────
+function buildUserContent(text, images) {
+  if (!images || images.length === 0) return text;
+  const parts = [];
+  if (text.trim()) parts.push({ type: 'text', text });
+  images.forEach(img => {
+    parts.push({
+      type: 'image_url',
+      image_url: { url: `data:${img.mimeType};base64,${img.base64}`, detail: 'auto' }
+    });
+  });
+  return parts;
+}
+
 // ── Send message ──────────────────────────────────────────────────────
 async function sendMessage(text) {
-  if (!text.trim() || isRunning) return;
+  if ((!text.trim() && pendingImages.length === 0) || isRunning) return;
 
   if (!currentId) {
     const convo = createConvo();
@@ -216,18 +306,34 @@ async function sendMessage(text) {
   welcomeEl.style.display = 'none';
   messagesEl.style.display = 'flex';
 
-  updateTitle(convo, text);
+  const displayText = text.trim() || '(image attached)';
+  updateTitle(convo, displayText);
 
-  convo.messages.push({ role: 'user', content: text });
+  // Snapshot images before clearing
+  const attachedImages = [...pendingImages];
+  pendingImages = [];
+  renderImagePreviews();
+
+  // Build the message content for the API
+  const apiContent = buildUserContent(text, attachedImages);
+
+  // Store in conversation (keep dataUrls for display, don't persist base64 in localStorage)
+  convo.messages.push({
+    role: 'user',
+    content: apiContent,
+    textContent: displayText,
+    images: attachedImages.map(i => ({ dataUrl: i.dataUrl }))
+  });
   save();
-  renderMessage('user', text, [], true);
+
+  renderMessage('user', displayText, [], attachedImages.map(i => ({ dataUrl: i.dataUrl })));
   renderHistory();
 
   userInput.value = '';
   autoResize();
   setLoading(true);
 
-  // Create assistant message shell with live tool call rendering
+  // Create assistant message shell
   const assistantDiv = document.createElement('div');
   assistantDiv.className = 'message assistant';
 
@@ -253,9 +359,10 @@ async function sendMessage(text) {
   scrollDown();
 
   const collectedToolCalls = [];
-  let currentToolEl = null;
+  abortController = new AbortController();
 
   try {
+    // Build API messages — only send role + content (no extra fields)
     const apiMessages = convo.messages
       .filter(m => m.role === 'user' || m.role === 'assistant')
       .map(m => ({ role: m.role, content: m.content }));
@@ -263,7 +370,8 @@ async function sendMessage(text) {
     const res = await fetch('/api/agent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: apiMessages })
+      body: JSON.stringify({ messages: apiMessages }),
+      signal: abortController.signal
     });
 
     if (!res.ok) {
@@ -291,15 +399,14 @@ async function sendMessage(text) {
         try { event = JSON.parse(line.slice(6)); } catch { continue; }
 
         if (event.type === 'tool_start') {
-          currentToolEl = renderToolCall(event.tool, event.args, undefined, 'running');
-          currentToolEl.dataset.callId = event.callId;
-          tcContainer.appendChild(currentToolEl);
+          const tcEl = renderToolCall(event.tool, event.args, undefined, 'running');
+          tcEl.dataset.callId = event.callId;
+          tcContainer.appendChild(tcEl);
           scrollDown();
         }
 
         if (event.type === 'tool_result') {
-          const callId = event.callId;
-          const el = tcContainer.querySelector(`[data-call-id="${callId}"]`);
+          const el = tcContainer.querySelector(`[data-call-id="${event.callId}"]`);
           if (el) {
             const statusEl = el.querySelector('.tool-status');
             if (statusEl) {
@@ -312,13 +419,7 @@ async function sendMessage(text) {
             el.appendChild(resultEl);
             el.querySelector('.tool-call-header').addEventListener('click', () => el.classList.toggle('expanded'));
           }
-
-          collectedToolCalls.push({
-            name: event.tool,
-            args: tcContainer.querySelector(`[data-call-id="${callId}"]`)
-              ? {} : {},
-            result: event.result
-          });
+          collectedToolCalls.push({ name: event.tool, args: {}, result: event.result });
           scrollDown();
         }
 
@@ -327,6 +428,7 @@ async function sendMessage(text) {
           convo.messages.push({
             role: 'assistant',
             content: event.reply,
+            textContent: event.reply,
             toolCalls: collectedToolCalls
           });
           save();
@@ -340,17 +442,24 @@ async function sendMessage(text) {
     }
 
   } catch (err) {
-    contentDiv.innerHTML = `<strong style="color:var(--red)">Connection error.</strong> Is the server still running?`;
+    if (err.name === 'AbortError') {
+      contentDiv.innerHTML = `<em style="color:var(--text-muted)">Stopped.</em>`;
+    } else {
+      contentDiv.innerHTML = `<strong style="color:var(--red)">Connection error.</strong> Is the server still running?`;
+    }
   }
 
+  abortController = null;
   setLoading(false);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
 function setLoading(loading) {
   isRunning = loading;
-  sendBtn.disabled = loading || userInput.value.trim() === '';
+  sendBtn.style.display = loading ? 'none' : 'flex';
+  stopBtn.style.display = loading ? 'flex' : 'none';
   userInput.disabled = loading;
+  if (!loading) sendBtn.disabled = userInput.value.trim() === '' && pendingImages.length === 0;
 }
 
 function autoResize() {
@@ -361,28 +470,70 @@ function autoResize() {
 // ── Events ────────────────────────────────────────────────────────────
 userInput.addEventListener('input', () => {
   autoResize();
-  sendBtn.disabled = isRunning || userInput.value.trim() === '';
+  sendBtn.disabled = isRunning || (userInput.value.trim() === '' && pendingImages.length === 0);
 });
 
 userInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    if (!sendBtn.disabled) sendMessage(userInput.value);
+    if (!sendBtn.disabled && !isRunning) sendMessage(userInput.value);
   }
 });
 
 sendBtn.addEventListener('click', () => sendMessage(userInput.value));
+
+stopBtn.addEventListener('click', () => {
+  if (abortController) abortController.abort();
+});
 
 newChatBtn.addEventListener('click', () => {
   currentId = null;
   messagesEl.innerHTML = '';
   welcomeEl.style.display = 'flex';
   messagesEl.style.display = 'none';
+  pendingImages = [];
+  renderImagePreviews();
   renderHistory();
 });
 
 document.querySelectorAll('.suggestion').forEach(btn => {
   btn.addEventListener('click', () => sendMessage(btn.dataset.text));
+});
+
+// Image attach button
+attachBtn.addEventListener('click', () => imageInput.click());
+
+imageInput.addEventListener('change', async e => {
+  await addImages(Array.from(e.target.files));
+  imageInput.value = '';
+  sendBtn.disabled = isRunning || (userInput.value.trim() === '' && pendingImages.length === 0);
+});
+
+// Drag and drop images onto the input area
+inputArea.addEventListener('dragover', e => {
+  e.preventDefault();
+  inputArea.classList.add('drag-over');
+});
+
+inputArea.addEventListener('dragleave', () => inputArea.classList.remove('drag-over'));
+
+inputArea.addEventListener('drop', async e => {
+  e.preventDefault();
+  inputArea.classList.remove('drag-over');
+  const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+  if (files.length) {
+    await addImages(files);
+    sendBtn.disabled = isRunning || (userInput.value.trim() === '' && pendingImages.length === 0);
+  }
+});
+
+// Paste images from clipboard
+document.addEventListener('paste', async e => {
+  const items = Array.from(e.clipboardData.items).filter(i => i.type.startsWith('image/'));
+  if (items.length === 0) return;
+  const files = items.map(i => i.getAsFile());
+  await addImages(files);
+  sendBtn.disabled = isRunning || (userInput.value.trim() === '' && pendingImages.length === 0);
 });
 
 // Working dir modal
