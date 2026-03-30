@@ -9,11 +9,12 @@ function setWorkDir(dir) { WORK_DIR = dir; }
 function getWorkDir() { return WORK_DIR; }
 
 function resolveSafe(filePath) {
-  const resolved = path.resolve(WORK_DIR, filePath);
-  if (!resolved.startsWith(path.resolve(WORK_DIR))) {
-    throw new Error('Path traversal outside working directory is not allowed.');
+  // Allow absolute paths anywhere on the machine (user may provide full paths)
+  if (path.isAbsolute(filePath)) {
+    return filePath;
   }
-  return resolved;
+  // Relative paths are resolved against the working directory
+  return path.resolve(WORK_DIR, filePath);
 }
 
 function buildIgnorePatterns() {
