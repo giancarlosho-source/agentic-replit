@@ -7,7 +7,7 @@ const { OpenAI } = require('openai');
 const { TOOL_DEFINITIONS, executeTool, setWorkDir, getWorkDir } = require('./tools');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 const AI_MODEL = process.env.AI_MODEL || 'gpt-4o';
 
 if (process.env.WORK_DIR) setWorkDir(process.env.WORK_DIR);
@@ -239,7 +239,7 @@ app.get('/api/files', (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
   console.log('  ║       Local AI Coding Agent          ║');
