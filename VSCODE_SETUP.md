@@ -106,11 +106,11 @@ node ~/tools/local-agent/server.js
 
 4. You'll see:
 ```
-  Open in browser: http://localhost:3000
+  Open in browser: http://localhost:5000
   Working on:      /path/to/your/project
 ```
 
-5. Open your browser and go to **http://localhost:3000**
+5. Open your browser and go to **http://localhost:5000**
 
 The agent is now running on your project folder. You can chat with it to build, edit, debug, or explain code.
 
@@ -198,7 +198,7 @@ Press `Ctrl+C` in the VS Code terminal where the agent is running.
 |---------|----------|
 | `node: command not found` | Install Node.js from https://nodejs.org and restart VS Code |
 | `Cannot find module` | Run `npm install` in the local-agent folder |
-| Port 3000 already in use | Add `PORT=3001` to your `.env` file |
+| Port 5000 already in use | Add `PORT=3001` to your `.env` file |
 | "API key not set" in the UI | Check your `.env` file has the real key, then restart the server |
 | "Invalid API key" error | Make sure you copied the full key — it starts with `sk-` |
 | Page won't load | Make sure the server is still running in the terminal (not stopped) |
