@@ -210,7 +210,7 @@ async function callAzure(messages, tools) {
   const client = new AzureOpenAI({
     apiKey: process.env.AZURE_OPENAI_API_KEY,
     endpoint: process.env.AZURE_OPENAI_ENDPOINT,
-    apiVersion: process.env.AZURE_OPENAI_API_VERSION || '2024-08-01-preview',
+    apiVersion: process.env.AZURE_OPENAI_API_VERSION || '2025-01-01-preview',
     deployment
   });
 
