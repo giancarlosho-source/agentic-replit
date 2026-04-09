@@ -202,14 +202,16 @@ async function callAnthropic(messages, tools) {
 }
 
 async function callAzure(messages, tools) {
-  if (!process.env.AZURE_OPENAI_API_KEY || !process.env.AZURE_OPENAI_ENDPOINT) {
+  const azureKey = process.env.AZURE_KEY || process.env.AZURE_OPENAI_API_KEY;
+  const azureEndpoint = process.env.AZURE_ENDPOINT || process.env.AZURE_OPENAI_ENDPOINT;
+  if (!azureKey || !azureEndpoint) {
     throw Object.assign(new Error('Azure OpenAI not configured'), { status: 401 });
   }
 
-  const deployment = process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4o';
+  const deployment = process.env.AZURE_DEPLOYMENT || process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4o';
   const client = new AzureOpenAI({
-    apiKey: process.env.AZURE_OPENAI_API_KEY,
-    endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+    apiKey: azureKey,
+    endpoint: azureEndpoint,
     apiVersion: process.env.AZURE_OPENAI_API_VERSION || '2025-01-01-preview',
     deployment
   });
@@ -301,7 +303,7 @@ async function callWithFallback(messages, tools, { onFallback } = {}) {
 function getProviderStatus() {
   return {
     anthropic: !!(Anthropic && process.env.ANTHROPIC_API_KEY),
-    azure: !!(process.env.AZURE_OPENAI_API_KEY && process.env.AZURE_OPENAI_ENDPOINT),
+    azure: !!((process.env.AZURE_KEY || process.env.AZURE_OPENAI_API_KEY) && (process.env.AZURE_ENDPOINT || process.env.AZURE_OPENAI_ENDPOINT)),
     openai: !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here'),
     github: !!process.env.GITHUB_TOKEN
   };
