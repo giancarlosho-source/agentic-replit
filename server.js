@@ -3,26 +3,17 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const { OpenAI } = require('openai');
 const { TOOL_DEFINITIONS, executeTool, setWorkDir, getWorkDir } = require('./tools');
+const { callWithFallback, getProviderStatus, isAnyProviderReady, getActiveProviderName } = require('./providers');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const AI_MODEL = process.env.AI_MODEL || 'gpt-4o';
 
 if (process.env.WORK_DIR) setWorkDir(process.env.WORK_DIR);
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
-
-let openai = null;
-
-function getClient() {
-  if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'your_openai_api_key_here') return null;
-  if (!openai) openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  return openai;
-}
 
 const SYSTEM_PROMPT = () => `You are a fully autonomous AI coding agent running on the user's machine. Your job is to complete tasks end-to-end without asking questions. You plan, build, test, fix errors, and verify — all on your own — until the task is 100% done.
 
@@ -92,18 +83,21 @@ Current date: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 
 - Do NOT include a wall of code in your response — the code is already in the files.`;
 
 
-// ── Status endpoint ───────────────────────────────────────────────────
+// ── Status endpoint ────────────────────────────────────────────────────
 app.get('/api/status', (req, res) => {
-  const client = getClient();
+  const ready = isAnyProviderReady();
+  const active = getActiveProviderName();
+  const providers = getProviderStatus();
   res.json({
-    ready: !!client,
-    model: AI_MODEL,
+    ready,
+    providers,
+    activeProvider: active,
     workDir: getWorkDir(),
-    message: client ? `Ready · ${AI_MODEL}` : 'API key not set'
+    message: ready ? `Ready · ${active}` : 'No API key set'
   });
 });
 
-// ── Set working directory ─────────────────────────────────────────────
+// ── Set working directory ──────────────────────────────────────────────
 app.post('/api/workdir', (req, res) => {
   const { dir } = req.body;
   if (!dir) return res.status(400).json({ error: 'dir is required' });
@@ -112,7 +106,7 @@ app.post('/api/workdir', (req, res) => {
   res.json({ workDir: getWorkDir() });
 });
 
-// ── Main agent endpoint (SSE streaming) ──────────────────────────────
+// ── Main agent endpoint (SSE streaming) ───────────────────────────────
 app.post('/api/agent', async (req, res) => {
   const { messages } = req.body;
 
@@ -120,9 +114,10 @@ app.post('/api/agent', async (req, res) => {
     return res.status(400).json({ error: 'messages array is required' });
   }
 
-  const client = getClient();
-  if (!client) {
-    return res.status(503).json({ error: 'OpenAI API key not configured. Add it to your .env file and restart.' });
+  if (!isAnyProviderReady()) {
+    return res.status(503).json({
+      error: 'No API key configured. Add at least one key (ANTHROPIC_API_KEY, AZURE_OPENAI_API_KEY, OPENAI_API_KEY, or GITHUB_TOKEN) to your .env file and restart.'
+    });
   }
 
   // Set up SSE
@@ -146,17 +141,8 @@ app.post('/api/agent', async (req, res) => {
     while (iterationCount < MAX_ITERATIONS) {
       iterationCount++;
 
-      const response = await client.chat.completions.create({
-        model: AI_MODEL,
-        messages: conversationMessages,
-        tools: TOOL_DEFINITIONS,
-        tool_choice: 'auto',
-        temperature: 0.3,
-        max_tokens: 4096
-      });
-
-      const choice = response.choices[0];
-      const msg = choice.message;
+      const result = await callWithFallback(conversationMessages, TOOL_DEFINITIONS);
+      const msg = result.message;
       conversationMessages.push(msg);
 
       // If the AI wants to call tools
@@ -178,25 +164,25 @@ app.post('/api/agent', async (req, res) => {
           });
 
           // Execute the tool
-          let result;
+          let toolResult;
           try {
-            result = executeTool(toolName, toolArgs);
+            toolResult = executeTool(toolName, toolArgs);
           } catch (err) {
-            result = `Error executing ${toolName}: ${err.message}`;
+            toolResult = `Error executing ${toolName}: ${err.message}`;
           }
 
           // Send result to frontend
           send('tool_result', {
             tool: toolName,
             callId: toolCall.id,
-            result: result.slice(0, 2000) + (result.length > 2000 ? '\n... (truncated for display)' : '')
+            result: toolResult.slice(0, 2000) + (toolResult.length > 2000 ? '\n... (truncated for display)' : '')
           });
 
           // Add tool result to conversation
           conversationMessages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
-            content: result
+            content: toolResult
           });
         }
 
@@ -228,9 +214,8 @@ app.post('/api/agent', async (req, res) => {
   }
 });
 
-// ── File tree for sidebar ─────────────────────────────────────────────
+// ── File tree for sidebar ──────────────────────────────────────────────
 app.get('/api/files', (req, res) => {
-  const { executeTool: exec } = require('./tools');
   try {
     const result = executeTool('list_files', { path: '.', max_depth: 4 });
     res.json({ tree: result, workDir: getWorkDir() });
@@ -240,6 +225,10 @@ app.get('/api/files', (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
+  const ready = isAnyProviderReady();
+  const active = getActiveProviderName();
+  const providers = getProviderStatus();
+
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
   console.log('  ║       Local AI Coding Agent          ║');
@@ -247,17 +236,25 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log(`  Open in browser: http://localhost:${PORT}`);
   console.log(`  Working on:      ${getWorkDir()}`);
-  console.log(`  Model:           ${AI_MODEL}`);
   console.log('');
 
-  if (!getClient()) {
-    console.log('  ⚠  No API key detected.');
-    console.log('     1. Copy .env.example to .env');
-    console.log('     2. Add your OpenAI API key');
-    console.log('     3. Restart: Ctrl+C, then npm start');
+  if (ready) {
+    console.log(`  ✓  Active provider: ${active}`);
+    console.log('');
+    console.log('  Configured providers:');
+    if (providers.anthropic)  console.log('    ✓ Anthropic');
+    if (providers.azure)      console.log('    ✓ Azure OpenAI');
+    if (providers.openai)     console.log('    ✓ OpenAI');
+    if (providers.github)     console.log('    ✓ GitHub Models');
     console.log('');
   } else {
-    console.log('  ✓  Agent ready. Start chatting!');
+    console.log('  ⚠  No API key detected.');
+    console.log('     Add at least one key to your .env file:');
+    console.log('       ANTHROPIC_API_KEY   — Anthropic Claude (tried first)');
+    console.log('       AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT — Azure OpenAI');
+    console.log('       OPENAI_API_KEY      — OpenAI');
+    console.log('       GITHUB_TOKEN        — GitHub Models (tried last)');
+    console.log('     Then restart: Ctrl+C, npm start');
     console.log('');
   }
 
