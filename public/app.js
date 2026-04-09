@@ -398,6 +398,14 @@ async function sendMessage(text) {
         let event;
         try { event = JSON.parse(line.slice(6)); } catch { continue; }
 
+        if (event.type === 'provider_switch') {
+          const notice = document.createElement('div');
+          notice.className = 'provider-switch-notice';
+          notice.textContent = `${event.from} unavailable (${event.reason}) — trying next provider…`;
+          tcContainer.appendChild(notice);
+          scrollDown();
+        }
+
         if (event.type === 'tool_start') {
           const tcEl = renderToolCall(event.tool, event.args, undefined, 'running');
           tcEl.dataset.callId = event.callId;

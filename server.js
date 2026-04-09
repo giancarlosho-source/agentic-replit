@@ -141,7 +141,11 @@ app.post('/api/agent', async (req, res) => {
     while (iterationCount < MAX_ITERATIONS) {
       iterationCount++;
 
-      const result = await callWithFallback(conversationMessages, TOOL_DEFINITIONS);
+      const result = await callWithFallback(conversationMessages, TOOL_DEFINITIONS, {
+        onFallback: (fromProvider, reason) => {
+          send('provider_switch', { from: fromProvider, reason });
+        }
+      });
       const msg = result.message;
       conversationMessages.push(msg);
 

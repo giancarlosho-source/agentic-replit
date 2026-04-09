@@ -103,7 +103,11 @@ function fromOpenAIResponse(response) {
 function isBlocked(err) {
   const status = err.status || err.statusCode || (err.error && err.error.status);
   const msg = (err.message || '').toLowerCase();
-  return (
+  // Node.js error code — may be on the error itself or nested inside err.cause
+  const code = err.code || (err.cause && err.cause.code) || '';
+
+  // API-level blocks: bad key, quota, rate limit, permission
+  const isApiBlock = (
     status === 401 || status === 403 || status === 429 ||
     msg.includes('unauthorized') ||
     msg.includes('invalid api key') ||
@@ -116,6 +120,64 @@ function isBlocked(err) {
     msg.includes('not configured') ||
     msg.includes('access denied')
   );
+
+  // Network-level blocks: Zscaler, firewall, proxy, SSL inspection
+  const isNetworkBlock = (
+    // TCP-level failures
+    code === 'ECONNRESET' ||
+    code === 'ECONNREFUSED' ||
+    code === 'ECONNABORTED' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ENOTFOUND' ||
+    code === 'ENETUNREACH' ||
+    code === 'EHOSTUNREACH' ||
+    // SSL/TLS errors — common when Zscaler does certificate inspection
+    // and its CA cert is not trusted by Node.js
+    code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
+    code === 'SELF_SIGNED_CERT_IN_CHAIN' ||
+    code === 'CERT_HAS_EXPIRED' ||
+    code === 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY' ||
+    code === 'ERR_TLS_CERT_ALTNAME_INVALID' ||
+    code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
+    // Keyword matches for SSL / network / proxy messages
+    msg.includes('ssl') ||
+    msg.includes('certificate') ||
+    msg.includes('self-signed') ||
+    msg.includes('network error') ||
+    msg.includes('fetch failed') ||
+    msg.includes('connect timeout') ||
+    msg.includes('connection reset') ||
+    msg.includes('connection refused') ||
+    msg.includes('socket hang up') ||
+    msg.includes('blocked') ||
+    msg.includes('proxy') ||
+    msg.includes('firewall') ||
+    msg.includes('zscaler') ||
+    // The OpenAI/Anthropic SDKs wrap network errors as APIConnectionError
+    err.constructor?.name === 'APIConnectionError'
+  );
+
+  return isApiBlock || isNetworkBlock;
+}
+
+function blockReason(err) {
+  const code = err.code || (err.cause && err.cause.code) || '';
+  const msg = (err.message || '').toLowerCase();
+  if (code.includes('CERT') || code.includes('SSL') || code.includes('TLS') ||
+      msg.includes('ssl') || msg.includes('certificate') || msg.includes('self-signed')) {
+    return 'SSL/certificate error (possible proxy inspection)';
+  }
+  if (code === 'ECONNRESET' || code === 'ECONNABORTED' || msg.includes('connection reset')) return 'connection reset';
+  if (code === 'ETIMEDOUT' || msg.includes('timeout')) return 'connection timed out';
+  if (code === 'ECONNREFUSED') return 'connection refused';
+  if (code === 'ENOTFOUND') return 'host not found (DNS blocked?)';
+  if (code === 'ENETUNREACH' || code === 'EHOSTUNREACH') return 'network unreachable';
+  if (msg.includes('zscaler') || msg.includes('proxy') || msg.includes('blocked') || msg.includes('firewall')) return 'blocked by network/proxy';
+  const status = err.status || err.statusCode;
+  if (status === 401) return 'authentication error';
+  if (status === 403) return 'access denied';
+  if (status === 429) return 'rate limit / quota exceeded';
+  return err.message || 'unavailable';
 }
 
 // ── Individual provider calls ─────────────────────────────────────────────────
@@ -217,13 +279,16 @@ const PROVIDER_CHAIN = [
   { name: 'GitHub Models', fn: callGitHub }
 ];
 
-async function callWithFallback(messages, tools) {
+async function callWithFallback(messages, tools, { onFallback } = {}) {
   let lastError;
   for (const provider of PROVIDER_CHAIN) {
     try {
       return await provider.fn(messages, tools);
     } catch (err) {
       if (isBlocked(err)) {
+        const reason = blockReason(err);
+        console.warn(`[providers] ${provider.name} blocked: ${reason}`);
+        if (onFallback) onFallback(provider.name, reason);
         lastError = err;
         continue;
       }
