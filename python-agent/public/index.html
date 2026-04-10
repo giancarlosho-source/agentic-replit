@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Local AI Agent</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <div class="logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span>AI Agent</span>
+        </div>
+        <button class="new-chat-btn" id="newChatBtn" title="New chat">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          New
+        </button>
+      </div>
+
+      <div class="sidebar-section-label">Working Directory</div>
+      <div class="workdir-row">
+        <div class="workdir-display" id="workdirDisplay" title="Click to change">...</div>
+        <button class="icon-btn" id="changeWorkdirBtn" title="Change working directory">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+      </div>
+
+      <div class="sidebar-section-label">Conversations</div>
+      <div class="history-list" id="historyList"></div>
+
+      <div class="sidebar-footer">
+        <div class="status-row" id="statusRow">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Checking...</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main area -->
+    <main class="main">
+      <div class="chat-area" id="chatArea">
+        <!-- Welcome screen -->
+        <div class="welcome" id="welcomeScreen">
+          <div class="welcome-icon">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          </div>
+          <h1>Local AI Coding Agent</h1>
+          <p>I can read and write files, run commands, build full applications, debug code, and more — all running on your machine.</p>
+          <div class="suggestions">
+            <button class="suggestion" data-text="List all files in this project and give me an overview of the structure.">Explore project structure</button>
+            <button class="suggestion" data-text="Create a simple Flask REST API with a /health endpoint and a /api/users endpoint returning mock data.">Create a Flask API</button>
+            <button class="suggestion" data-text="Look at the existing code and find any bugs or improvements you can make.">Review & improve code</button>
+            <button class="suggestion" data-text="Create a Python script that reads a CSV file and outputs a summary of the data.">Python CSV script</button>
+            <button class="suggestion" data-text="Set up a new React project from scratch with a basic layout and navigation.">Bootstrap a React app</button>
+            <button class="suggestion" data-text="Run pip install -r requirements.txt and report what happens.">Install dependencies</button>
+          </div>
+        </div>
+        <!-- Messages -->
+        <div class="messages" id="messages"></div>
+      </div>
+
+      <!-- Input -->
+      <div class="input-area">
+        <!-- Image preview strip -->
+        <div class="image-preview-strip" id="imagePreviewStrip" style="display:none"></div>
+
+        <div class="input-wrapper">
+          <!-- Image upload button -->
+          <button class="attach-btn" id="attachBtn" title="Attach image or screenshot">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          </button>
+          <input type="file" id="imageInput" accept="image/*" multiple style="display:none" />
+
+          <textarea
+            id="userInput"
+            placeholder="Tell the agent what to build, fix, or explain... (Enter to send, Shift+Enter for new line)"
+            rows="1"
+          ></textarea>
+
+          <!-- Stop button (shown while agent is running) -->
+          <button class="stop-btn" id="stopBtn" style="display:none" title="Stop the agent">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+          </button>
+
+          <button class="send-btn" id="sendBtn" disabled>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+        <p class="disclaimer">Runs entirely on your machine · Files are in <span id="workdirInline">...</span></p>
+      </div>
+    </main>
+  </div>
+
+  <!-- Change workdir modal -->
+  <div class="modal-overlay" id="workdirModal" style="display:none">
+    <div class="modal">
+      <div class="modal-title">Change Working Directory</div>
+      <p class="modal-desc">Enter the full path to the folder you want the agent to work on.</p>
+      <input type="text" id="workdirInput" placeholder="/path/to/your/project" />
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelWorkdir">Cancel</button>
+        <button class="btn-primary" id="confirmWorkdir">Change</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
